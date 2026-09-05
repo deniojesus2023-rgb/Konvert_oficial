@@ -109,6 +109,20 @@ export const authRouter = router({
       throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid email or password" });
     }
 
+    // Correct credentials are not enough: a suspended account can't log
+    // in at all, and that failure must say why (never let it look like a
+    // wrong password — the account owner needs to know to contact
+    // support, not to keep retrying their password).
+    if (user.accountId) {
+      const [account] = await ctx.db.select().from(accounts).where(eq(accounts.id, user.accountId));
+      if (account && account.status !== "active") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Esta conta está suspensa. Entre em contato com o suporte da Konvert.",
+        });
+      }
+    }
+
     const token = signAuthToken({
       userId: user.id,
       email: user.email,

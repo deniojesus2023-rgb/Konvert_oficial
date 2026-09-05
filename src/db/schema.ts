@@ -26,6 +26,9 @@ export const userRoleEnum = ["platform_admin", "admin", "manager"] as const;
 export type UserRole = (typeof userRoleEnum)[number];
 
 export const accountStatusEnum = ["active", "suspended", "canceled"] as const;
+export type AccountStatus = (typeof accountStatusEnum)[number];
+export const accountPlanEnum = ["trial", "basic", "pro", "enterprise"] as const;
+export type AccountPlan = (typeof accountPlanEnum)[number];
 export const storeStatusEnum = ["active", "paused", "closed"] as const;
 export const userStatusEnum = ["active", "disabled"] as const;
 
@@ -33,6 +36,7 @@ export const accounts = mysqlTable("accounts", {
   id: varchar("id", { length: 36 }).primaryKey(),
   name: varchar("name", { length: 191 }).notNull(),
   slug: varchar("slug", { length: 191 }).notNull(),
+  plan: mysqlEnum("plan", accountPlanEnum).notNull().default("trial"),
   status: mysqlEnum("status", accountStatusEnum).notNull().default("active"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
@@ -507,4 +511,76 @@ export const orderItemsRelations = relations(orderItems, ({ one }) => ({
   order: one(orders, { fields: [orderItems.orderId], references: [orders.id] }),
   product: one(products, { fields: [orderItems.productId], references: [products.id] }),
   store: one(stores, { fields: [orderItems.storeId], references: [stores.id] }),
+}));
+
+/**
+ * ---- Platform / super-admin (phase 5) ----
+ * This is the one area of the schema scoped by accountId instead of
+ * storeId, on purpose: platform_admin operates on accounts (billing,
+ * plan, suspension), not on any single store. Nothing here is reachable
+ * through resolveStoreId — it goes through platformProcedure instead,
+ * which checks role === "platform_admin" directly.
+ */
+
+export const invoiceStatusEnum = ["pending", "paid", "overdue", "canceled"] as const;
+export type InvoiceStatus = (typeof invoiceStatusEnum)[number];
+
+/** Manual billing record — no payment gateway wired up yet, just the ledger. */
+export const accountInvoices = mysqlTable("account_invoices", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  accountId: varchar("account_id", { length: 36 })
+    .notNull()
+    .references(() => accounts.id, { onDelete: "cascade" }),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  status: mysqlEnum("status", invoiceStatusEnum).notNull().default("pending"),
+  // "YYYY-MM" — which billing month this invoice covers, not when it was issued.
+  referenceMonth: varchar("reference_month", { length: 7 }).notNull(),
+  dueDate: timestamp("due_date").notNull(),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+}, (table) => ({
+  accountIdx: index("account_invoices_account_id_idx").on(table.accountId),
+  accountReferenceMonthUnique: uniqueIndex("account_invoices_account_id_reference_month_unique").on(
+    table.accountId,
+    table.referenceMonth,
+  ),
+}));
+
+/**
+ * Every platform_admin action that modifies an account's data MUST write
+ * one row here — this is not optional logging, it's the only record that
+ * someone with power over every account on the platform did something to
+ * one of them. Write it in the same request as the mutation, before
+ * returning success.
+ */
+export const platformAuditLog = mysqlTable("platform_audit_log", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  platformAdminUserId: varchar("platform_admin_user_id", { length: 36 })
+    .notNull()
+    .references(() => users.id, { onDelete: "restrict" }),
+  action: varchar("action", { length: 64 }).notNull(),
+  targetAccountId: varchar("target_account_id", { length: 36 })
+    .notNull()
+    .references(() => accounts.id, { onDelete: "restrict" }),
+  targetStoreId: varchar("target_store_id", { length: 36 }).references(() => stores.id, {
+    onDelete: "set null",
+  }),
+  metadata: json("metadata").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  targetAccountIdx: index("platform_audit_log_target_account_id_idx").on(table.targetAccountId),
+  platformAdminIdx: index("platform_audit_log_platform_admin_user_id_idx").on(
+    table.platformAdminUserId,
+  ),
+}));
+
+export const accountInvoicesRelations = relations(accountInvoices, ({ one }) => ({
+  account: one(accounts, { fields: [accountInvoices.accountId], references: [accounts.id] }),
+}));
+
+export const platformAuditLogRelations = relations(platformAuditLog, ({ one }) => ({
+  platformAdmin: one(users, { fields: [platformAuditLog.platformAdminUserId], references: [users.id] }),
+  targetAccount: one(accounts, { fields: [platformAuditLog.targetAccountId], references: [accounts.id] }),
+  targetStore: one(stores, { fields: [platformAuditLog.targetStoreId], references: [stores.id] }),
 }));

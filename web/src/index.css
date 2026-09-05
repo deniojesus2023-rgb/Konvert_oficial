@@ -309,3 +309,85 @@ button.danger {
   flex-direction: column;
   gap: 0.25rem;
 }
+
+/* ---- Platform (super-admin) panel ---- */
+
+.platform-topbar {
+  background: #1e1b4b;
+}
+
+.platform-forbidden {
+  max-width: 480px;
+  margin: 4rem auto;
+  text-align: center;
+}
+
+.hint {
+  color: #666;
+  font-size: 0.85rem;
+}
+
+.status-badge {
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.status-active {
+  background: #dcfce7;
+  color: #14532d;
+}
+
+.status-suspended {
+  background: #fee2e2;
+  color: #7f1d1d;
+}
+
+.status-canceled {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.account-detail-page section {
+  margin-bottom: 1.5rem;
+}
+
+.platform-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 400px;
+}
+
+.button-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.metrics-grid {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.metric-tile {
+  background: white;
+  border-radius: 10px;
+  padding: 1.25rem 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 160px;
+}
+
+.metric-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+}
+
+.metric-label {
+  color: #666;
+  font-size: 0.85rem;
+}

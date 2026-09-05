@@ -12,3 +12,17 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
   }
   return next({ ctx: { ...ctx, user: ctx.user } });
 });
+
+/**
+ * Every platform.* endpoint uses this instead of protectedProcedure — the
+ * role check lives here, once, as middleware. Never reproduce this as an
+ * inline `if (ctx.user.role !== "platform_admin")` inside a handler: a
+ * forgotten check on one new endpoint would silently expose every
+ * account on the platform to any logged-in staff member.
+ */
+export const platformProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.user.role !== "platform_admin") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "platform_admin role required" });
+  }
+  return next({ ctx });
+});

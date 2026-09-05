@@ -28,6 +28,8 @@ export const testDb = drizzle(pool, { schema, mode: "default" });
 
 export async function resetDb(): Promise<void> {
   await testDb.execute(sql.raw("SET FOREIGN_KEY_CHECKS = 0"));
+  await testDb.execute(sql.raw("TRUNCATE TABLE platform_audit_log"));
+  await testDb.execute(sql.raw("TRUNCATE TABLE account_invoices"));
   await testDb.execute(sql.raw("TRUNCATE TABLE journey_executions"));
   await testDb.execute(sql.raw("TRUNCATE TABLE journeys"));
   await testDb.execute(sql.raw("TRUNCATE TABLE scheduled_notifications"));
@@ -86,6 +88,26 @@ export async function createManager(accountId: string, storeId: string) {
   await testDb.insert(storeManagers).values({ id: randomUUID(), userId, storeId });
   const managerUser: AuthTokenPayload = { userId, email: "manager", role: "manager", accountId };
   return managerUser;
+}
+
+/** A platform_admin has no accountId — they aren't scoped to any single account. */
+export async function createPlatformAdmin() {
+  const userId = randomUUID();
+  await testDb.insert(users).values({
+    id: userId,
+    accountId: null,
+    email: `platform-admin-${randomUUID()}@konvert.dev`,
+    passwordHash: await hashPassword("supersecret123"),
+    name: "Platform Admin",
+    role: "platform_admin",
+  });
+  const platformAdminUser: AuthTokenPayload = {
+    userId,
+    email: "platform-admin",
+    role: "platform_admin",
+    accountId: null,
+  };
+  return platformAdminUser;
 }
 
 /** Gives an existing account a second store, to exercise the "multiple stores, none selected" case. */

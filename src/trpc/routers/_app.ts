@@ -8,6 +8,7 @@ import { storeSettingsRouter } from "./storeSettings.js";
 import { automationsRouter } from "./automations.js";
 import { crmRouter } from "./crm.js";
 import { notificationsRouter } from "./notifications.js";
+import { platformRouter } from "./platform.js";
 
 export const appRouter = router({
   auth: authRouter,
@@ -19,6 +20,7 @@ export const appRouter = router({
   automations: automationsRouter,
   crm: crmRouter,
   notifications: notificationsRouter,
+  platform: platformRouter,
 });
 
 export type AppRouter = typeof appRouter;

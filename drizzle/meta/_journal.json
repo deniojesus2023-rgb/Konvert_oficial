@@ -36,6 +36,13 @@
       "when": 1788647928341,
       "tag": "0004_opposite_cannonball",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1788649786521,
+      "tag": "0005_rapid_wallop",
+      "breakpoints": true
     }
   ]
 }

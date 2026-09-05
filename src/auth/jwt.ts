@@ -7,11 +7,16 @@ export interface AuthTokenPayload {
   email: string;
   role: UserRole;
   accountId: string | null;
+  /** Present only on a short-lived token minted by platform.impersonateAccount. */
+  impersonatedBy?: string;
 }
 
-export function signAuthToken(payload: AuthTokenPayload): string {
+export function signAuthToken(
+  payload: AuthTokenPayload,
+  opts: { expiresIn?: string } = {},
+): string {
   return jwt.sign(payload, env.jwtSecret, {
-    expiresIn: env.jwtExpiresIn as jwt.SignOptions["expiresIn"],
+    expiresIn: (opts.expiresIn ?? env.jwtExpiresIn) as jwt.SignOptions["expiresIn"],
   });
 }
 
@@ -20,9 +25,9 @@ export function verifyAuthToken(token: string): AuthTokenPayload {
   if (typeof decoded === "string") {
     throw new Error("Invalid token payload");
   }
-  const { userId, email, role, accountId } = decoded as Partial<AuthTokenPayload>;
+  const { userId, email, role, accountId, impersonatedBy } = decoded as Partial<AuthTokenPayload>;
   if (!userId || !email || !role) {
     throw new Error("Invalid token payload");
   }
-  return { userId, email, role, accountId: accountId ?? null };
+  return { userId, email, role, accountId: accountId ?? null, impersonatedBy };
 }
