@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
-import { eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { resolveStoreId } from "../../auth/access.js";
+import { assertOwnedByStore, resolveStoreId } from "../../auth/access.js";
 import { getActiveStoreById } from "../../storefront/resolveStore.js";
-import { orderItems, orders, products } from "../../db/schema.js";
+import { orderItems, orderStatusEnum, orders, products } from "../../db/schema.js";
+import { assertValidOrderTransition } from "../../orders/statusTransitions.js";
 import { protectedProcedure, publicProcedure, router } from "../trpc.js";
 
 const createOrderInput = z.object({
@@ -114,5 +115,67 @@ export const ordersRouter = router({
         .where(eq(orderItems.orderId, order.id));
 
       return { ...order, items };
+    }),
+
+  /**
+   * Staff order queue for the resolved store, paginated and filterable by
+   * status. Requires a resolvable store — an admin with more than one
+   * store and no storeId picked gets a clear BAD_REQUEST from
+   * resolveStoreId, never a silently empty list.
+   */
+  listAll: protectedProcedure
+    .input(
+      z.object({
+        storeId: z.string().optional(),
+        status: z.enum(orderStatusEnum).optional(),
+        page: z.number().int().positive().optional(),
+        pageSize: z.number().int().positive().max(100).optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const storeId = await resolveStoreId(ctx.db, ctx.user, input.storeId);
+      const page = input.page ?? 1;
+      const pageSize = input.pageSize ?? 20;
+
+      const where = input.status
+        ? and(eq(orders.storeId, storeId), eq(orders.status, input.status))
+        : eq(orders.storeId, storeId);
+
+      const [items, totalRows] = await Promise.all([
+        ctx.db
+          .select()
+          .from(orders)
+          .where(where)
+          .orderBy(desc(orders.createdAt))
+          .limit(pageSize)
+          .offset((page - 1) * pageSize),
+        ctx.db.select({ total: count() }).from(orders).where(where),
+      ]);
+
+      return { items, page, pageSize, total: totalRows[0]?.total ?? 0 };
+    }),
+
+  /**
+   * Advances (or cancels) an order. Transitions are validated against the
+   * fixed state machine — no skipping steps, no reviving a terminal order.
+   */
+  updateStatus: protectedProcedure
+    .input(
+      z.object({
+        orderId: z.string(),
+        storeId: z.string().optional(),
+        status: z.enum(orderStatusEnum),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const storeId = await resolveStoreId(ctx.db, ctx.user, input.storeId);
+      const [order] = await ctx.db.select().from(orders).where(eq(orders.id, input.orderId));
+      const owned = assertOwnedByStore(order, storeId, "Order not found");
+
+      assertValidOrderTransition(owned.status, input.status);
+
+      await ctx.db.update(orders).set({ status: input.status }).where(eq(orders.id, input.orderId));
+      const [updated] = await ctx.db.select().from(orders).where(eq(orders.id, input.orderId));
+      return updated;
     }),
 });

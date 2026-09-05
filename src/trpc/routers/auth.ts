@@ -6,7 +6,7 @@ import { accounts, stores, users } from "../../db/schema.js";
 import { hashPassword, verifyPassword } from "../../auth/password.js";
 import { signAuthToken } from "../../auth/jwt.js";
 import { slugify } from "../../util/slug.js";
-import { publicProcedure, router } from "../trpc.js";
+import { protectedProcedure, publicProcedure, router } from "../trpc.js";
 
 const signupInput = z.object({
   accountName: z.string().min(2).max(191),
@@ -127,4 +127,7 @@ export const authRouter = router({
       },
     };
   }),
+
+  /** Identity check for the admin panel: who is logged in, and what role/account they carry. */
+  me: protectedProcedure.query(({ ctx }) => ctx.user),
 });

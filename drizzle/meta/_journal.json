@@ -15,6 +15,20 @@
       "when": 1788645118703,
       "tag": "0001_cuddly_blackheart",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1788646386004,
+      "tag": "0002_cute_gamma_corps",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1788646480113,
+      "tag": "0003_slim_psylocke",
+      "breakpoints": true
     }
   ]
 }

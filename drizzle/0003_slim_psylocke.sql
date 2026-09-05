@@ -1,0 +1,1 @@
+ALTER TABLE `categories` ADD `active` boolean DEFAULT true NOT NULL;

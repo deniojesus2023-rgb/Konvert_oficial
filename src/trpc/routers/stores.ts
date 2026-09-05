@@ -4,7 +4,22 @@ import { eq } from "drizzle-orm";
 import { resolveStoreId } from "../../auth/access.js";
 import { getActiveStoreBySlug, resolveStorefrontStore } from "../../storefront/resolveStore.js";
 import { stores } from "../../db/schema.js";
+import type { Database } from "../../db/client.js";
+import type { AuthTokenPayload } from "../../auth/jwt.js";
 import { protectedProcedure, publicProcedure, router } from "../trpc.js";
+
+async function listStoresForUser(db: Database, user: AuthTokenPayload) {
+  if (user.role === "platform_admin") {
+    return db.select().from(stores);
+  }
+  if (user.role === "admin" && user.accountId) {
+    return db.select().from(stores).where(eq(stores.accountId, user.accountId));
+  }
+  // manager: only the store(s) they're explicitly linked to
+  const storeId = await resolveStoreId(db, user).catch(() => null);
+  if (!storeId) return [];
+  return db.select().from(stores).where(eq(stores.id, storeId));
+}
 
 export const storesRouter = router({
   /**
@@ -32,18 +47,20 @@ export const storesRouter = router({
       };
     }),
 
-  /** Stores visible to the caller, scoped by role (never cross-account). */
+  /**
+   * Stores visible to the caller, scoped by role — never a raw SELECT *.
+   * admin: only their account's stores. manager: only the store(s) linked
+   * via store_managers. platform_admin: every store. This is what powers
+   * the store switcher in the admin panel (only shown when it returns
+   * more than one store).
+   */
+  listMine: protectedProcedure.query(async ({ ctx }) => {
+    return listStoresForUser(ctx.db, ctx.user);
+  }),
+
+  /** @deprecated kept for the phase-1/2 callers; same as listMine. */
   list: protectedProcedure.query(async ({ ctx }) => {
-    if (ctx.user.role === "platform_admin") {
-      return ctx.db.select().from(stores);
-    }
-    if (ctx.user.role === "admin" && ctx.user.accountId) {
-      return ctx.db.select().from(stores).where(eq(stores.accountId, ctx.user.accountId));
-    }
-    // manager: only the stores they're explicitly linked to
-    const storeId = await resolveStoreId(ctx.db, ctx.user).catch(() => null);
-    if (!storeId) return [];
-    return ctx.db.select().from(stores).where(eq(stores.id, storeId));
+    return listStoresForUser(ctx.db, ctx.user);
   }),
 
   getById: protectedProcedure

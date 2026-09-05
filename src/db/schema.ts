@@ -128,6 +128,10 @@ export const categories = mysqlTable("categories", {
     .references(() => stores.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 191 }).notNull(),
   slug: varchar("slug", { length: 191 }).notNull(),
+  // Soft delete only, same rule as products: a category can already have
+  // products (and those products order_items), so it's never physically
+  // deleted — just hidden from the public menu.
+  active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
 }, (table) => ({
@@ -217,6 +221,30 @@ export const orderItems = mysqlTable("order_items", {
   productIdx: index("order_items_product_id_idx").on(table.productId),
 }));
 
+/**
+ * Free-form per-store config (PIX key, WhatsApp number, opening hours,
+ * ...) without a schema migration per new setting. `value` is always a
+ * string; callers agree on the shape (plain text, JSON-encoded, etc.)
+ * per key. Which keys are sensitive (never surfaced to the public
+ * storefront) is a decision made in the router layer, not the schema.
+ */
+export const storeSettings = mysqlTable("store_settings", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  storeId: varchar("store_id", { length: 36 })
+    .notNull()
+    .references(() => stores.id, { onDelete: "cascade" }),
+  key: varchar("key", { length: 191 }).notNull(),
+  value: text("value").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+}, (table) => ({
+  storeKeyUnique: uniqueIndex("store_settings_store_id_key_unique").on(table.storeId, table.key),
+}));
+
+export const storeSettingsRelations = relations(storeSettings, ({ one }) => ({
+  store: one(stores, { fields: [storeSettings.storeId], references: [stores.id] }),
+}));
+
 export const accountsRelations = relations(accounts, ({ many }) => ({
   stores: many(stores),
   users: many(users),
@@ -228,6 +256,7 @@ export const storesRelations = relations(stores, ({ one, many }) => ({
   categories: many(categories),
   products: many(products),
   orders: many(orders),
+  settings: many(storeSettings),
 }));
 
 export const usersRelations = relations(users, ({ one, many }) => ({

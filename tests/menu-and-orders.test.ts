@@ -1,8 +1,15 @@
-import { randomUUID } from "node:crypto";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { categories, products } from "../src/db/schema.js";
-import { caller, closeDb, createAccountWithStore, createManager, resetDb, testDb } from "./helpers.js";
+import { products } from "../src/db/schema.js";
+import {
+  caller,
+  closeDb,
+  createAccountWithStore,
+  createManager,
+  resetDb,
+  seedMenu,
+  testDb,
+} from "./helpers.js";
 
 afterAll(async () => {
   await closeDb();
@@ -11,26 +18,6 @@ afterAll(async () => {
 beforeEach(async () => {
   await resetDb();
 });
-
-async function seedMenu(storeId: string, opts?: { price?: string; active?: boolean }) {
-  const categoryId = randomUUID();
-  const productId = randomUUID();
-  await testDb.insert(categories).values({
-    id: categoryId,
-    storeId,
-    name: "Pizzas",
-    slug: "pizzas",
-  });
-  await testDb.insert(products).values({
-    id: productId,
-    storeId,
-    categoryId,
-    name: "Marguerita",
-    price: opts?.price ?? "39.90",
-    active: opts?.active ?? true,
-  });
-  return { categoryId, productId };
-}
 
 describe("public menu isolation", () => {
   it("products.list of one store never returns another store's products", async () => {

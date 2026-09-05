@@ -116,3 +116,22 @@ async function resolveManager(
   }
   return managedStores[0]!.storeId;
 }
+
+/**
+ * Guards every "act on this exact record by id" mutation (productId,
+ * orderId, categoryId, ...). Call it right after loading the record and
+ * right after resolving the caller's storeId, before touching anything
+ * else — a record that exists but belongs to a different store fails
+ * exactly like one that doesn't exist, so staff of store B can't tell
+ * "not found" from "belongs to someone else" by probing ids.
+ */
+export function assertOwnedByStore<T extends { storeId: string }>(
+  record: T | undefined | null,
+  storeId: string,
+  message = "Record not found",
+): T {
+  if (!record || record.storeId !== storeId) {
+    throw new TRPCError({ code: "NOT_FOUND", message });
+  }
+  return record;
+}

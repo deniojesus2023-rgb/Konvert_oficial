@@ -3,7 +3,8 @@ import mysql from "mysql2/promise";
 import { drizzle } from "drizzle-orm/mysql2";
 import { sql } from "drizzle-orm";
 import * as schema from "../src/db/schema.js";
-import { storeManagers, users } from "../src/db/schema.js";
+import { categories, products, storeManagers, stores, users } from "../src/db/schema.js";
+import { slugify } from "../src/util/slug.js";
 import { appRouter } from "../src/trpc/routers/_app.js";
 import { createTestContext } from "../src/trpc/context.js";
 import type { AuthTokenPayload } from "../src/auth/jwt.js";
@@ -22,6 +23,7 @@ export async function resetDb(): Promise<void> {
   await testDb.execute(sql.raw("TRUNCATE TABLE orders"));
   await testDb.execute(sql.raw("TRUNCATE TABLE products"));
   await testDb.execute(sql.raw("TRUNCATE TABLE categories"));
+  await testDb.execute(sql.raw("TRUNCATE TABLE store_settings"));
   await testDb.execute(sql.raw("TRUNCATE TABLE store_managers"));
   await testDb.execute(sql.raw("TRUNCATE TABLE stores"));
   await testDb.execute(sql.raw("TRUNCATE TABLE users"));
@@ -69,4 +71,38 @@ export async function createManager(accountId: string, storeId: string) {
   await testDb.insert(storeManagers).values({ id: randomUUID(), userId, storeId });
   const managerUser: AuthTokenPayload = { userId, email: "manager", role: "manager", accountId };
   return managerUser;
+}
+
+/** Gives an existing account a second store, to exercise the "multiple stores, none selected" case. */
+export async function addStoreToAccount(accountId: string, label: string) {
+  const storeId = randomUUID();
+  const publicSlug = `${slugify(`loja-${label}`)}-${randomUUID().slice(0, 8)}`;
+  await testDb.insert(stores).values({
+    id: storeId,
+    accountId,
+    name: `Loja extra ${label}`,
+    slug: `loja-extra-${label}`,
+    publicSlug,
+  });
+  return { id: storeId, publicSlug };
+}
+
+export async function seedMenu(storeId: string, opts?: { price?: string; active?: boolean }) {
+  const categoryId = randomUUID();
+  const productId = randomUUID();
+  await testDb.insert(categories).values({
+    id: categoryId,
+    storeId,
+    name: "Pizzas",
+    slug: "pizzas",
+  });
+  await testDb.insert(products).values({
+    id: productId,
+    storeId,
+    categoryId,
+    name: "Marguerita",
+    price: opts?.price ?? "39.90",
+    active: opts?.active ?? true,
+  });
+  return { categoryId, productId };
 }
