@@ -59,6 +59,16 @@ export const authRouter = router({
       return rows.length > 0;
     });
 
+    // publicSlug is the storefront subdomain, a genuinely global namespace,
+    // so it needs its own uniqueness check independent of the account.
+    const storePublicSlug = await uniqueSlug(input.storeName, async (candidate) => {
+      const rows = await ctx.db
+        .select({ id: stores.id })
+        .from(stores)
+        .where(eq(stores.publicSlug, candidate));
+      return rows.length > 0;
+    });
+
     await ctx.db.transaction(async (tx) => {
       await tx.insert(accounts).values({ id: accountId, name: input.accountName, slug: accountSlug });
       await tx.insert(stores).values({
@@ -66,6 +76,7 @@ export const authRouter = router({
         accountId,
         name: input.storeName,
         slug: slugify(input.storeName) || "loja",
+        publicSlug: storePublicSlug,
       });
       await tx.insert(users).values({
         id: userId,
@@ -83,7 +94,7 @@ export const authRouter = router({
       token,
       user: { id: userId, email: input.email, name: input.adminName, role: "admin" as const, accountId },
       account: { id: accountId, name: input.accountName, slug: accountSlug },
-      store: { id: storeId, name: input.storeName },
+      store: { id: storeId, name: input.storeName, publicSlug: storePublicSlug },
     };
   }),
 

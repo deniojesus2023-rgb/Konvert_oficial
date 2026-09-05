@@ -1,47 +1,20 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { resolveStoreId } from "../src/auth/access.js";
-import { storeManagers, stores, users } from "../src/db/schema.js";
-import { hashPassword } from "../src/auth/password.js";
+import { stores } from "../src/db/schema.js";
+import {
+  caller,
+  closeDb,
+  createAccountWithStore,
+  createManager,
+  resetDb,
+  testDb,
+} from "./helpers.js";
 import type { AuthTokenPayload } from "../src/auth/jwt.js";
-import { caller, closeDb, resetDb, testDb } from "./helpers.js";
 
 afterAll(async () => {
   await closeDb();
 });
-
-async function createAccountWithStore(label: string) {
-  const anon = caller(null);
-  const signup = await anon.auth.signup({
-    accountName: `Conta ${label}`,
-    storeName: `Loja ${label}`,
-    adminName: `Admin ${label}`,
-    email: `admin-${label}-${randomUUID()}@example.com`,
-    password: "supersecret123",
-  });
-  const adminUser: AuthTokenPayload = {
-    userId: signup.user.id,
-    email: signup.user.email,
-    role: "admin",
-    accountId: signup.account.id,
-  };
-  return { ...signup, adminUser };
-}
-
-async function createManager(accountId: string, storeId: string) {
-  const userId = randomUUID();
-  await testDb.insert(users).values({
-    id: userId,
-    accountId,
-    email: `manager-${randomUUID()}@example.com`,
-    passwordHash: await hashPassword("supersecret123"),
-    name: "Manager",
-    role: "manager",
-  });
-  await testDb.insert(storeManagers).values({ id: randomUUID(), userId, storeId });
-  const managerUser: AuthTokenPayload = { userId, email: "manager", role: "manager", accountId };
-  return managerUser;
-}
 
 beforeEach(async () => {
   await resetDb();
@@ -139,6 +112,7 @@ describe("cross-account isolation", () => {
         accountId: accountB.account.id,
         name: "Filial",
         slug: "filial",
+        publicSlug: `filial-${randomUUID()}`,
       }),
     ).resolves.toBeDefined();
     await expect(
@@ -147,6 +121,7 @@ describe("cross-account isolation", () => {
         accountId: accountA.account.id,
         name: "Filial",
         slug: "filial",
+        publicSlug: `filial-${randomUUID()}`,
       }),
     ).resolves.toBeDefined();
 
@@ -157,6 +132,7 @@ describe("cross-account isolation", () => {
         accountId: accountA.account.id,
         name: "Filial Duplicada",
         slug: "filial",
+        publicSlug: `filial-${randomUUID()}`,
       }),
     ).rejects.toThrow();
   });

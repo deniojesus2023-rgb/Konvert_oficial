@@ -1,0 +1,167 @@
+:root {
+  --brand-color: #111827;
+  color-scheme: light;
+  font-family: system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #f7f7f8;
+  color: #1a1a1a;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1rem 1rem 6rem;
+}
+
+.dev-bar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  background: #fffbe6;
+  border: 1px solid #e5d98a;
+  padding: 0.5rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+}
+
+.dev-bar input {
+  flex: 1;
+  padding: 0.3rem;
+}
+
+.store-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  color: var(--brand-color);
+}
+
+.store-header .logo {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.category h2 {
+  border-bottom: 2px solid var(--brand-color);
+  padding-bottom: 0.25rem;
+}
+
+.product-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.product-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: white;
+  border-radius: 10px;
+  padding: 0.75rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.product-card img {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.product-info {
+  flex: 1;
+}
+
+.product-info h3 {
+  margin: 0 0 0.25rem;
+}
+
+.product-info p {
+  margin: 0 0 0.25rem;
+  color: #666;
+  font-size: 0.85rem;
+}
+
+.price {
+  font-weight: 600;
+}
+
+.quantity-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+button {
+  background: var(--brand-color);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+}
+
+.link-button {
+  background: none;
+  color: var(--brand-color);
+  padding: 0;
+}
+
+.cart-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--brand-color);
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+}
+
+.cart-bar button {
+  background: white;
+  color: var(--brand-color);
+}
+
+.checkout-page form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.cart-summary {
+  list-style: none;
+  padding: 0;
+}
+
+.cart-summary li {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.25rem 0;
+}
+
+.total {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.error {
+  color: #b00020;
+}
+
+.confirmation {
+  text-align: center;
+  padding: 2rem 0;
+}

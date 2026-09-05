@@ -8,6 +8,13 @@
       "when": 1788644186736,
       "tag": "0000_open_norrin_radd",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1788645118703,
+      "tag": "0001_cuddly_blackheart",
+      "breakpoints": true
     }
   ]
 }
