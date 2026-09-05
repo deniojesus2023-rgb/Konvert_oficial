@@ -14,4 +14,11 @@ export const env = {
   jwtSecret: required("JWT_SECRET", "dev-only-insecure-secret-change-me"),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
   port: Number(process.env.PORT ?? 3000),
+  // Fallback WhatsApp sender used only when a store hasn't configured its
+  // own number (store_settings key "whatsappSenderConfig") — meant for
+  // dev/test environments, never a substitute for per-store credentials
+  // in production.
+  whatsappProvider: (process.env.WHATSAPP_PROVIDER ?? "none") as "twilio" | "zapi" | "none",
+  whatsappDefaultFrom: process.env.WHATSAPP_DEFAULT_FROM,
+  whatsappDefaultToken: process.env.WHATSAPP_DEFAULT_TOKEN,
 };

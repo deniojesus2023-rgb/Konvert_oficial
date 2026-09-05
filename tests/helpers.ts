@@ -3,7 +3,16 @@ import mysql from "mysql2/promise";
 import { drizzle } from "drizzle-orm/mysql2";
 import { sql } from "drizzle-orm";
 import * as schema from "../src/db/schema.js";
-import { categories, products, storeManagers, stores, users } from "../src/db/schema.js";
+import {
+  categories,
+  customers,
+  orders,
+  products,
+  storeManagers,
+  stores,
+  users,
+  type OrderStatus,
+} from "../src/db/schema.js";
 import { slugify } from "../src/util/slug.js";
 import { appRouter } from "../src/trpc/routers/_app.js";
 import { createTestContext } from "../src/trpc/context.js";
@@ -19,8 +28,14 @@ export const testDb = drizzle(pool, { schema, mode: "default" });
 
 export async function resetDb(): Promise<void> {
   await testDb.execute(sql.raw("SET FOREIGN_KEY_CHECKS = 0"));
+  await testDb.execute(sql.raw("TRUNCATE TABLE journey_executions"));
+  await testDb.execute(sql.raw("TRUNCATE TABLE journeys"));
+  await testDb.execute(sql.raw("TRUNCATE TABLE scheduled_notifications"));
+  await testDb.execute(sql.raw("TRUNCATE TABLE customer_tags"));
+  await testDb.execute(sql.raw("TRUNCATE TABLE custom_tags"));
   await testDb.execute(sql.raw("TRUNCATE TABLE order_items"));
   await testDb.execute(sql.raw("TRUNCATE TABLE orders"));
+  await testDb.execute(sql.raw("TRUNCATE TABLE customers"));
   await testDb.execute(sql.raw("TRUNCATE TABLE products"));
   await testDb.execute(sql.raw("TRUNCATE TABLE categories"));
   await testDb.execute(sql.raw("TRUNCATE TABLE store_settings"));
@@ -85,6 +100,33 @@ export async function addStoreToAccount(accountId: string, label: string) {
     publicSlug,
   });
   return { id: storeId, publicSlug };
+}
+
+/** A global customer identity, reusable across any number of stores' orders. */
+export async function createCustomer(opts?: { phone?: string; name?: string }) {
+  const id = randomUUID();
+  const phone = opts?.phone ?? `+5511${randomUUID().replace(/\D/g, "").slice(0, 9)}`;
+  await testDb.insert(customers).values({ id, phone, name: opts?.name ?? "Cliente Teste" });
+  return { id, phone };
+}
+
+/** Seeds a minimal order for a customer directly (bypasses checkout, which doesn't collect a phone yet). */
+export async function seedOrderForCustomer(
+  storeId: string,
+  customerId: string,
+  opts?: { total?: string; status?: OrderStatus; createdAt?: Date },
+) {
+  const id = randomUUID();
+  await testDb.insert(orders).values({
+    id,
+    storeId,
+    customerId,
+    status: opts?.status ?? "delivered",
+    deliveryAddress: "Rua de Teste, 1",
+    total: opts?.total ?? "50.00",
+    createdAt: opts?.createdAt,
+  });
+  return { id };
 }
 
 export async function seedMenu(storeId: string, opts?: { price?: string; active?: boolean }) {

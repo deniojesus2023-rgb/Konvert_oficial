@@ -10,6 +10,7 @@ import {
   int,
   boolean,
   text,
+  json,
 } from "drizzle-orm/mysql-core";
 
 /**
@@ -160,6 +161,29 @@ export const products = mysqlTable("products", {
   storeActiveIdx: index("products_store_id_active_idx").on(table.storeId, table.active),
 }));
 
+/**
+ * A customer is global by design: the same phone number can order from
+ * many different stores, and there is exactly one identity record for
+ * them platform-wide (phone is the natural key, UNIQUE globally — the
+ * same deliberate exception as accounts.slug/stores.publicSlug, because
+ * the customer themself is the entity, not a record scoped under a
+ * store). Everything derived from a customer's *behavior* — tags,
+ * journey executions, order history shown in the CRM — MUST still be
+ * computed and filtered per store. Never aggregate a customer's orders
+ * or tags across stores; a customer can be "vip" in store A and "novo"
+ * in store B at the same time.
+ */
+export const customers = mysqlTable("customers", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  phone: varchar("phone", { length: 32 }).notNull(),
+  name: varchar("name", { length: 191 }),
+  email: varchar("email", { length: 191 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+}, (table) => ({
+  phoneUnique: uniqueIndex("customers_phone_unique").on(table.phone),
+}));
+
 export const orderStatusEnum = [
   "pending",
   "confirmed",
@@ -178,8 +202,13 @@ export const orders = mysqlTable("orders", {
   storeId: varchar("store_id", { length: 36 })
     .notNull()
     .references(() => stores.id, { onDelete: "cascade" }),
-  // null for guest checkout; set only when a logged-in user places the order.
+  // null for guest checkout; set only when a logged-in staff user places the order.
   userId: varchar("user_id", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+  // The actual end customer (global identity), when known. Nullable
+  // because not every historical/guest order captures a phone number.
+  customerId: varchar("customer_id", { length: 36 }).references(() => customers.id, {
+    onDelete: "set null",
+  }),
   status: mysqlEnum("status", orderStatusEnum).notNull().default("pending"),
   deliveryAddress: text("delivery_address").notNull(),
   paymentMethod: mysqlEnum("payment_method", paymentMethodEnum)
@@ -191,6 +220,11 @@ export const orders = mysqlTable("orders", {
 }, (table) => ({
   storeIdx: index("orders_store_id_idx").on(table.storeId),
   userIdx: index("orders_user_id_idx").on(table.userId),
+  customerIdx: index("orders_customer_id_idx").on(table.customerId),
+  // CRM order history is always "this customer's orders IN this store" —
+  // never just "this customer's orders" — so the composite is the shape
+  // that query actually needs.
+  storeCustomerIdx: index("orders_store_id_customer_id_idx").on(table.storeId, table.customerId),
 }));
 
 /**
@@ -245,6 +279,189 @@ export const storeSettingsRelations = relations(storeSettings, ({ one }) => ({
   store: one(stores, { fields: [storeSettings.storeId], references: [stores.id] }),
 }));
 
+/**
+ * ---- CRM / marketing automation (phase 4) ----
+ * `customers` is the one deliberately global table in this section (see
+ * its own comment above). Every other table here is scoped by storeId as
+ * usual, and — critically — so is every *computation* over customer
+ * behavior: a tag, a journey trigger, or a metric is always grouped by
+ * (storeId, customerId), never by customerId alone. Two stores can see
+ * completely different tags for the exact same phone number.
+ */
+
+/**
+ * Auto-computed tags only (e.g. "novo", "recorrente", "inativo_30",
+ * "vip"), recalculated periodically strictly from that store's own
+ * orders. Manually-created tag *names* live in `custom_tags` below —
+ * assigning one to a customer is a separate concern from this table.
+ */
+export const customerTags = mysqlTable("customer_tags", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  storeId: varchar("store_id", { length: 36 })
+    .notNull()
+    .references(() => stores.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id", { length: 36 })
+    .notNull()
+    .references(() => customers.id, { onDelete: "cascade" }),
+  tag: varchar("tag", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  storeCustomerTagUnique: uniqueIndex("customer_tags_store_id_customer_id_tag_unique").on(
+    table.storeId,
+    table.customerId,
+    table.tag,
+  ),
+  storeIdx: index("customer_tags_store_id_idx").on(table.storeId),
+  customerIdx: index("customer_tags_customer_id_idx").on(table.customerId),
+}));
+
+/** Tag vocabulary an admin defines for their own store (e.g. "aniversariante"). */
+export const customTags = mysqlTable("custom_tags", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  storeId: varchar("store_id", { length: 36 })
+    .notNull()
+    .references(() => stores.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  storeNameUnique: uniqueIndex("custom_tags_store_id_name_unique").on(table.storeId, table.name),
+}));
+
+export const journeyTriggerEnum = [
+  "novo_cliente",
+  "pedido_concluido",
+  "checkout_abandoned",
+  "inativo_30",
+] as const;
+export type JourneyTrigger = (typeof journeyTriggerEnum)[number];
+
+export const journeyStatusEnum = ["active", "inactive"] as const;
+export type JourneyStatus = (typeof journeyStatusEnum)[number];
+
+/** One step of a journey's script. Stored as a JSON array on `journeys.steps`. */
+export type JourneyStep =
+  | { type: "send_whatsapp"; message: string }
+  | { type: "wait"; hours: number }
+  | { type: "apply_tag"; tag: string };
+
+/**
+ * A journey belongs to exactly one store and only ever fires from events
+ * that happened in that same store (see fireJourneyTrigger). Two stores
+ * may both register a "novo_cliente" journey; they never trigger each
+ * other's.
+ */
+export const journeys = mysqlTable("journeys", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  storeId: varchar("store_id", { length: 36 })
+    .notNull()
+    .references(() => stores.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 191 }).notNull(),
+  trigger: mysqlEnum("trigger", journeyTriggerEnum).notNull(),
+  steps: json("steps").notNull().$type<JourneyStep[]>(),
+  status: mysqlEnum("status", journeyStatusEnum).notNull().default("active"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+}, (table) => ({
+  storeIdx: index("journeys_store_id_idx").on(table.storeId),
+  storeTriggerStatusIdx: index("journeys_store_id_trigger_status_idx").on(
+    table.storeId,
+    table.trigger,
+    table.status,
+  ),
+}));
+
+export const journeyExecutionStatusEnum = ["running", "completed", "canceled"] as const;
+export type JourneyExecutionStatus = (typeof journeyExecutionStatusEnum)[number];
+
+/**
+ * `storeId` is denormalized from `journeys.storeId` on purpose (same
+ * defense-in-depth rule as order_items.storeId): the periodic job that
+ * advances due executions selects across every store at once, and needs
+ * each row's own storeId right there to pick that store's WhatsApp
+ * config and to scope any tag it applies — without an extra join.
+ */
+export const journeyExecutions = mysqlTable("journey_executions", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  storeId: varchar("store_id", { length: 36 })
+    .notNull()
+    .references(() => stores.id, { onDelete: "cascade" }),
+  journeyId: varchar("journey_id", { length: 36 })
+    .notNull()
+    .references(() => journeys.id, { onDelete: "cascade" }),
+  customerId: varchar("customer_id", { length: 36 })
+    .notNull()
+    .references(() => customers.id, { onDelete: "cascade" }),
+  status: mysqlEnum("status", journeyExecutionStatusEnum).notNull().default("running"),
+  currentStep: int("current_step").notNull().default(0),
+  nextStepAt: timestamp("next_step_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+}, (table) => ({
+  storeIdx: index("journey_executions_store_id_idx").on(table.storeId),
+  journeyIdx: index("journey_executions_journey_id_idx").on(table.journeyId),
+  customerIdx: index("journey_executions_customer_id_idx").on(table.customerId),
+  // What the periodic job scans: due, still-running executions, across all stores.
+  dueIdx: index("journey_executions_status_next_step_at_idx").on(table.status, table.nextStepAt),
+}));
+
+export const notificationChannelEnum = ["whatsapp"] as const;
+export type NotificationChannel = (typeof notificationChannelEnum)[number];
+
+export const notificationStatusEnum = ["scheduled", "sent", "canceled", "failed"] as const;
+export type NotificationStatus = (typeof notificationStatusEnum)[number];
+
+/** A one-off campaign scheduled for a store's own customers (e.g. "promoção de sexta"). */
+export const scheduledNotifications = mysqlTable("scheduled_notifications", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  storeId: varchar("store_id", { length: 36 })
+    .notNull()
+    .references(() => stores.id, { onDelete: "cascade" }),
+  title: varchar("title", { length: 191 }).notNull(),
+  message: text("message").notNull(),
+  channel: mysqlEnum("channel", notificationChannelEnum).notNull().default("whatsapp"),
+  targetAudience: varchar("target_audience", { length: 64 }).notNull().default("all"),
+  scheduledAt: timestamp("scheduled_at").notNull(),
+  status: mysqlEnum("status", notificationStatusEnum).notNull().default("scheduled"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+}, (table) => ({
+  storeIdx: index("scheduled_notifications_store_id_idx").on(table.storeId),
+  storeStatusIdx: index("scheduled_notifications_store_id_status_idx").on(
+    table.storeId,
+    table.status,
+  ),
+}));
+
+export const customersRelations = relations(customers, ({ many }) => ({
+  orders: many(orders),
+  tags: many(customerTags),
+  journeyExecutions: many(journeyExecutions),
+}));
+
+export const customerTagsRelations = relations(customerTags, ({ one }) => ({
+  store: one(stores, { fields: [customerTags.storeId], references: [stores.id] }),
+  customer: one(customers, { fields: [customerTags.customerId], references: [customers.id] }),
+}));
+
+export const customTagsRelations = relations(customTags, ({ one }) => ({
+  store: one(stores, { fields: [customTags.storeId], references: [stores.id] }),
+}));
+
+export const journeysRelations = relations(journeys, ({ one, many }) => ({
+  store: one(stores, { fields: [journeys.storeId], references: [stores.id] }),
+  executions: many(journeyExecutions),
+}));
+
+export const journeyExecutionsRelations = relations(journeyExecutions, ({ one }) => ({
+  store: one(stores, { fields: [journeyExecutions.storeId], references: [stores.id] }),
+  journey: one(journeys, { fields: [journeyExecutions.journeyId], references: [journeys.id] }),
+  customer: one(customers, { fields: [journeyExecutions.customerId], references: [customers.id] }),
+}));
+
+export const scheduledNotificationsRelations = relations(scheduledNotifications, ({ one }) => ({
+  store: one(stores, { fields: [scheduledNotifications.storeId], references: [stores.id] }),
+}));
+
 export const accountsRelations = relations(accounts, ({ many }) => ({
   stores: many(stores),
   users: many(users),
@@ -282,6 +499,7 @@ export const productsRelations = relations(products, ({ one }) => ({
 export const ordersRelations = relations(orders, ({ one, many }) => ({
   store: one(stores, { fields: [orders.storeId], references: [stores.id] }),
   user: one(users, { fields: [orders.userId], references: [users.id] }),
+  customer: one(customers, { fields: [orders.customerId], references: [customers.id] }),
   items: many(orderItems),
 }));
 

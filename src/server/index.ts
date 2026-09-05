@@ -6,6 +6,8 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { appRouter } from "../trpc/routers/_app.js";
 import { createContext } from "../trpc/context.js";
 import { env } from "../env.js";
+import { db } from "../db/client.js";
+import { startAutomationScheduler } from "../automations/scheduler.js";
 
 const app = express();
 app.use(cors());
@@ -29,3 +31,5 @@ app.get("*", (_req, res) => {
 app.listen(env.port, () => {
   console.log(`Konvert API listening on port ${env.port}`);
 });
+
+startAutomationScheduler(db);
